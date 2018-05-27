@@ -2,10 +2,29 @@ require("imports?this=>window!jquery-hashchange");
 var SourceMap = require("source-map");
 var UglifyJS = require("./uglify-js");
 var generateHtml = require("./generateHtml");
+var pako = require('pako');
+var base64ArrayBuffer = require('base64-arraybuffer');
 
 var exampleKinds = ["coffee", "simple-coffee", "typescript", "babel", "sass"];
 var SOURCE_MAPPING_URL_REG_EXP = /\/\/[@#]\s*sourceMappingURL\s*=\s*data:[^\n]*?base64,([^\n]*)/;
 var SOURCE_MAPPING_URL_REG_EXP2 = /\/\*\s*[@#]\s*sourceMappingURL\s*=\s*data:[^\n]*?base64,([^\n]*)\s*\*\//;
+
+function compressStringToUriComponent(str) {
+	const te = new TextEncoder();
+	const utf8Buffer = te.encode(str);
+	const gzipCompressed = pako.gzip(utf8Buffer);
+	const base64String = base64ArrayBuffer.encode(gzipCompressed.buffer);
+	const uriComponent = encodeURIComponent(base64String);
+	return uriComponent;
+}
+function decompressUriComponentToString(str) {
+	const base64String = decodeURIComponent(str);
+	const gzipCompressedArrayBuffer = base64ArrayBuffer.decode(base64String);
+	const decompressedUint8Array = pako.ungzip(new Uint8Array(gzipCompressedArrayBuffer));
+	const td = new TextDecoder();
+	const output = td.decode(decompressedUint8Array);
+	return output;
+}
 
 $(function() {
 	require("bootstrap");
@@ -23,6 +42,16 @@ $(function() {
 		if(exampleKind !== "custom-choose")
 			$(".custom-modal").modal("hide");
 
+		if(exampleKind.indexOf("gz") === 0) {
+			var input = exampleKind.split(",").slice(1).map(function(str) {
+				return decompressUriComponentToString(str)
+			});
+			var gen = input.shift();
+			var map = JSON.parse(input.shift());
+			loadExample(input, gen, map);
+			oldHash = exampleKind;
+			return;
+		}
 		if(exampleKind.indexOf("base64") === 0) {
 			var input = exampleKind.split(",").slice(1).map(function(str) {
 				return decodeURIComponent(escape(atob(str)));
@@ -277,8 +306,8 @@ $(function() {
 
 	function loadCustomExample(sourcesContent, generatedSource, sourceMap) {
 		loadExample(sourcesContent, generatedSource, sourceMap);
-		$(".custom-link").attr("href", "#base64," + [generatedSource, JSON.stringify(sourceMap)].concat(sourcesContent).map(function(str){
-			return btoa(unescape(encodeURIComponent( str )));
+		$(".custom-link").attr("href", "#gz," + [generatedSource, JSON.stringify(sourceMap)].concat(sourcesContent).map(function(str){
+			return compressStringToUriComponent(str);
 		}).join(",")).text("Link to this");
 	}
 	function loadExample(sources, exampleJs, exampleMap) {
